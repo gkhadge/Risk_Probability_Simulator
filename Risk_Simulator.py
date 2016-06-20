@@ -8,8 +8,7 @@
 from __future__ import division
 import random
 import numpy as np
-#np.set_printoptions(suppress=True) #Suppress Scientific Notation
-np.set_printoptions(precision=4) #Set FP printing precision
+np.set_printoptions(suppress=True) #Suppress Scientific Notation
 
 # Number of trials to average over
 num_trials = 100000
@@ -86,6 +85,7 @@ def roll(attack,defend):
 average_remaining_scenario = np.zeros(len(initial_scenario))
 successes = np.zeros(len(initial_scenario))
 remaining_offense = np.zeros(len(initial_scenario))
+remaining_offense_std = np.zeros(len(initial_scenario))
 total_lost = 0
 total_killed = 0
 
@@ -110,7 +110,13 @@ for i in range(num_trials):
         if defense == 0:
             successes[terr] += 1
             offense -= 1 #Leave one troop behind
-            remaining_offense[terr] += offense
+
+            # Welford algorithm (iterative computation of mean and std)
+            # http://www.johndcook.com/blog/standard_deviation/
+            temp_RO = remaining_offense[terr]
+            remaining_offense[terr] += (offense - temp_RO)/(i+1)
+            remaining_offense_std[terr] += (offense - temp_RO)*(offense - remaining_offense[terr])
+            
             terr += 1 #Advance one territory
 
             # Conquest complete
@@ -119,21 +125,37 @@ for i in range(num_trials):
 
             # If conquest not complete, attack next territory
             defense = scenario[terr]
+            
+    # If failed conquest, continue to calculate the RO stats for failed terrs
+    # Assume offense = 0
+    while terr != len(scenario):
+        # Welford algorithm
+        temp_RO = remaining_offense[terr]
+        remaining_offense[terr] -=  temp_RO/(i+1)
+        remaining_offense_std[terr] += temp_RO*remaining_offense[terr]
+        terr += 1
+            
         
     average_remaining_scenario += scenario
 
+# Normalize stats to num_trials
 successes /= num_trials
-remaining_offense /= num_trials
 average_remaining_scenario /= num_trials
+# remaining_offense is already normalized
+
+# Welford Algorithm
+remaining_offense_std = np.sqrt(remaining_offense_std/(num_trials-2))
 
 ## Print conquest statistics
+np.set_printoptions(precision=4) #Set FP printing precision
 print "Total Success Rate: ", successes[-1] #success rate of conquering last territory
 print "Initial Offense: ", initial_offense
 print "Average Scenario: "
 for i in range(len(average_remaining_scenario)):
-    print i+1, ":\tInitial=", initial_scenario[i], \
-                "\tFinal=", average_remaining_scenario[i], \
-                "\tRemaining Offense=",remaining_offense[i], \
-                "\tSuccess Rate=", successes[i]
+    print i+1, ":\tInitial= {0:.0f}".format(initial_scenario[i]), \
+                "\tFinal= {0:.4f}".format(average_remaining_scenario[i]), \
+                "\tRemaining Offense= {0:.2f}".format(remaining_offense[i]), \
+                "\tRO std= {0:.2f}".format(remaining_offense_std[i]), \
+                "\tSuccess Rate= {0:.3f}".format(successes[i])
 print "Average Killed: ",total_killed/num_trials
 print "Average Lost: ",total_lost/num_trials
